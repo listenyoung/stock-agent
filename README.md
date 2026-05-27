@@ -171,19 +171,8 @@ python scripts\set_admin.py
 
 完整接口以 `http://localhost:8000/docs` 为准。
 
-## 安全检查
 
-- `.env`、`.env.local`、日志、数据库文件、`node_modules`、`__pycache__` 已在 `.gitignore` 中忽略。
-- `AgentServer/.env.example` 只放占位值，可以提交。
-- 当前本地目录没有 `.git` 元数据时，无法用 `git status` 或提交历史确认是否已经推送过密钥。推送前请在真实仓库中执行：
 
-```powershell
-git status --short
-git ls-files AgentServer/.env
-git log --all -- AgentServer/.env
-```
-
-如果 `.env` 曾经被提交过，请立刻撤销相关 API Key、数据库密码和 Webhook，并清理 Git 历史后再公开仓库。
 
 ## 许可证
 
