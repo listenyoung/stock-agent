@@ -1,0 +1,20 @@
+"""
+加密工具
+
+注意：密码哈希功能已在 nodes/web/api/auth.py 中实现
+此模块保留用于其他加密需求
+"""
+
+from passlib.context import CryptContext
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
+def hash_password(password: str) -> str:
+    """加密密码"""
+    return pwd_context.hash(password)
+
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """验证密码"""
+    return pwd_context.verify(plain_password, hashed_password)

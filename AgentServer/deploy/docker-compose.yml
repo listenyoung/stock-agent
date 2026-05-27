@@ -1,0 +1,268 @@
+services:
+  # ==================== 基础设施 ====================
+  
+  mongodb:
+    image: mongo:7.0
+    container_name: stock-agent-mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+      - ./mongodb/init-mongo.js:/docker-entrypoint-initdb.d/init-mongo.js:ro
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: 5201314a
+      MONGO_INITDB_DATABASE: stock_agent
+    networks:
+      - stock-agent-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: stock-agent-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --requirepass 5201314a
+    networks:
+      - stock-agent-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "5201314a", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Milvus 依赖组件 - Etcd (元数据存储)
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.5
+    container_name: stock-agent-etcd
+    environment:
+      - ETCD_AUTO_COMPACTION_MODE=revision
+      - ETCD_AUTO_COMPACTION_RETENTION=1000
+      - ETCD_QUOTA_BACKEND_BYTES=4294967296
+      - ETCD_SNAPSHOT_COUNT=50000
+    volumes:
+      - etcd_data:/etcd
+    command: etcd -advertise-client-urls=http://127.0.0.1:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      - stock-agent-network
+
+  # Milvus 依赖组件 - MinIO (对象存储)
+  minio:
+    image: minio/minio:RELEASE.2023-03-20T20-16-18Z
+    container_name: stock-agent-minio
+    environment:
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+    ports:
+      - "9001:9001"
+      - "9000:9000"
+    volumes:
+      - minio_data:/minio_data
+    command: minio server /minio_data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      - stock-agent-network
+
+  # Milvus 向量数据库
+  milvus:
+    image: milvusdb/milvus:v2.4.0
+    container_name: stock-agent-milvus
+    command: ["milvus", "run", "standalone"]
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    volumes:
+      - milvus_data:/var/lib/milvus
+    depends_on:
+      etcd:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - stock-agent-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 30s
+      start_period: 90s
+      timeout: 20s
+      retries: 3
+
+  # ==================== 应用节点 ====================
+  
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: stock-agent-web
+    ports:
+      - "8000:8000"
+    environment:
+      NODE_TYPE: web
+      HOST: "0.0.0.0"
+      PORT: "8000"
+      MONGO_HOST: mongodb
+      REDIS_HOST: redis
+      REDIS_PASSWORD: "5201314a"
+      MILVUS_HOST: milvus
+    env_file:
+      - ../.env
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - stock-agent-network
+    restart: unless-stopped
+
+  data-sync:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: stock-agent-data-sync
+    environment:
+      NODE_TYPE: data_sync
+      MONGO_HOST: mongodb
+      REDIS_HOST: redis
+      REDIS_PASSWORD: "5201314a"
+    env_file:
+      - ../.env
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - stock-agent-network
+    restart: unless-stopped
+    healthcheck:
+      disable: true
+
+  mcp:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: stock-agent-mcp
+    environment:
+      NODE_TYPE: mcp
+      MCP_PORT: "9000"
+      MONGO_HOST: mongodb
+      REDIS_HOST: redis
+      REDIS_PASSWORD: "5201314a"
+      MILVUS_HOST: milvus
+    env_file:
+      - ../.env
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      milvus:
+        condition: service_healthy
+    networks:
+      - stock-agent-network
+    restart: unless-stopped
+    healthcheck:
+      disable: true
+
+  inference:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: stock-agent-inference
+    environment:
+      NODE_TYPE: inference
+      MAX_CONCURRENT_TASKS: "5"
+      MONGO_HOST: mongodb
+      REDIS_HOST: redis
+      REDIS_PASSWORD: "5201314a"
+      MILVUS_HOST: milvus
+    env_file:
+      - ../.env
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mcp:
+        condition: service_started
+    networks:
+      - stock-agent-network
+    restart: unless-stopped
+    healthcheck:
+      disable: true
+
+  backtest:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: stock-agent-backtest
+    environment:
+      NODE_TYPE: backtest
+      MONGO_HOST: mongodb
+      REDIS_HOST: redis
+      REDIS_PASSWORD: "5201314a"
+    env_file:
+      - ../.env
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - stock-agent-network
+    restart: unless-stopped
+    healthcheck:
+      disable: true
+
+  # ==================== 可选: 可观测性 ====================
+  
+  # grafana:
+  #   image: grafana/grafana:10.2.0
+  #   container_name: stock-agent-grafana
+  #   ports:
+  #     - "3000:3000"
+  #   volumes:
+  #     - grafana_data:/var/lib/grafana
+  #   networks:
+  #     - stock-agent-network
+
+  # loki:
+  #   image: grafana/loki:2.9.0
+  #   container_name: stock-agent-loki
+  #   ports:
+  #     - "3100:3100"
+  #   networks:
+  #     - stock-agent-network
+
+volumes:
+  mongo_data:
+  redis_data:
+  etcd_data:
+  minio_data:
+  milvus_data:
+  # grafana_data:
+
+networks:
+  stock-agent-network:
+    driver: bridge

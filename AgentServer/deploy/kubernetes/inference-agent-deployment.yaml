@@ -1,0 +1,79 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stock-agent-inference-agent
+  labels:
+    app: stock-agent
+    component: inference-agent
+spec:
+  replicas: 3  # 支持水平扩容
+  selector:
+    matchLabels:
+      app: stock-agent
+      component: inference-agent
+  template:
+    metadata:
+      labels:
+        app: stock-agent
+        component: inference-agent
+    spec:
+      containers:
+      - name: inference-agent
+        image: stock-agent/inference-agent:latest
+        env:
+        - name: MONGODB_URL
+          valueFrom:
+            secretKeyRef:
+              name: stock-agent-secrets
+              key: mongodb-url
+        - name: REDIS_URL
+          valueFrom:
+            secretKeyRef:
+              name: stock-agent-secrets
+              key: redis-url
+        - name: MILVUS_HOST
+          value: "milvus"
+        - name: MCP_SERVER_URL
+          value: "stock-agent-data-agent:8001"
+        - name: LLM_API_BASE
+          valueFrom:
+            configMapKeyRef:
+              name: stock-agent-config
+              key: llm-api-base
+        - name: LLM_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: stock-agent-secrets
+              key: llm-api-key
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "4Gi"
+            cpu: "2000m"
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: stock-agent-inference-agent-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: stock-agent-inference-agent
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80

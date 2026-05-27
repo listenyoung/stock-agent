@@ -1,0 +1,62 @@
+// Agent 节点间 RPC 服务定义
+//
+// 编译命令:
+// python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. service.proto
+
+syntax = "proto3";
+
+package agent.rpc;
+
+// 通用节点 RPC 服务
+// 所有节点都实现此服务，支持通用方法调用
+service NodeService {
+    // 健康检查
+    rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+    
+    // 通用方法调用
+    // 支持任意方法名和 JSON 序列化的参数
+    rpc Invoke(InvokeRequest) returns (InvokeResponse);
+    
+    // 双向流式调用（预留，用于实时推送场景）
+    rpc Stream(stream StreamMessage) returns (stream StreamMessage);
+}
+
+// ==================== 健康检查 ====================
+
+message HealthCheckRequest {
+    string trace_id = 1;
+}
+
+message HealthCheckResponse {
+    string node_id = 1;
+    string node_type = 2;
+    string status = 3;      // "healthy" | "unhealthy"
+    int64 uptime_seconds = 4;
+    double load = 5;        // 当前负载 0.0-1.0
+}
+
+// ==================== 通用调用 ====================
+
+message InvokeRequest {
+    string trace_id = 1;        // 链路追踪 ID
+    string source_node = 2;     // 调用方节点 ID
+    string method = 3;          // 方法名，如 "refresh_strategies"
+    bytes payload = 4;          // JSON 序列化的参数
+    int32 timeout_ms = 5;       // 超时时间（毫秒），0 表示使用默认值
+}
+
+message InvokeResponse {
+    bool success = 1;
+    bytes result = 2;           // JSON 序列化的结果
+    string error = 3;           // 错误信息（如果失败）
+    int64 elapsed_ms = 4;       // 执行耗时（毫秒）
+}
+
+// ==================== 流式消息（预留） ====================
+
+message StreamMessage {
+    string trace_id = 1;
+    string message_type = 2;
+    bytes payload = 3;
+    int64 timestamp = 4;
+}

@@ -1,0 +1,100 @@
+# Milvus 配置文件
+# 用于生产环境的 Milvus 集群配置
+
+# 集合配置
+collections:
+  # 研报存储
+  Research_Reports:
+    description: "Research reports for RAG retrieval"
+    fields:
+      - name: id
+        type: VARCHAR
+        max_length: 64
+        is_primary: true
+      - name: ts_code
+        type: VARCHAR
+        max_length: 20
+        description: "Stock code"
+      - name: title
+        type: VARCHAR
+        max_length: 500
+        description: "Report title"
+      - name: content
+        type: VARCHAR
+        max_length: 8000
+        description: "Report content chunk"
+      - name: source
+        type: VARCHAR
+        max_length: 100
+        description: "Report source"
+      - name: publish_date
+        type: VARCHAR
+        max_length: 20
+        description: "Publish date"
+      - name: embedding
+        type: FLOAT_VECTOR
+        dim: 1024
+        description: "Text embedding vector"
+    index:
+      field: embedding
+      type: IVF_FLAT
+      metric_type: IP
+      params:
+        nlist: 1024
+    
+  # 市场分析记忆
+  Market_Snippets:
+    description: "Daily market analysis snippets for memory enhancement"
+    fields:
+      - name: id
+        type: VARCHAR
+        max_length: 64
+        is_primary: true
+      - name: ts_code
+        type: VARCHAR
+        max_length: 20
+        description: "Stock code"
+      - name: date
+        type: VARCHAR
+        max_length: 20
+        description: "Analysis date"
+      - name: analysis_type
+        type: VARCHAR
+        max_length: 50
+        description: "Type of analysis"
+      - name: content
+        type: VARCHAR
+        max_length: 4000
+        description: "Analysis content"
+      - name: signal
+        type: VARCHAR
+        max_length: 20
+        description: "Trading signal"
+      - name: embedding
+        type: FLOAT_VECTOR
+        dim: 1024
+        description: "Text embedding vector"
+    index:
+      field: embedding
+      type: IVF_FLAT
+      metric_type: IP
+      params:
+        nlist: 512
+
+# 性能配置
+performance:
+  # 查询配置
+  search:
+    nprobe: 16
+    round_decimal: -1
+  
+  # 缓存配置
+  cache:
+    cache_size: 4GB
+    insert_buffer_size: 1GB
+
+# 资源限制
+resources:
+  cpu: 4
+  memory: 16GB
+  gpu: 0  # 不使用 GPU

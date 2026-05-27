@@ -1,0 +1,107 @@
+# Query Refinement 提示词配置
+# 当 Supervisor 置信度不足时，生成 MCP 工具调用指令
+
+name: "query_refinement"
+version: "3.1.0"
+description: "数据补充决策器 - 针对矛盾点生成 MCP 工具调用计划"
+
+# 配置
+max_queries: 3
+min_confidence_for_skip: 60
+
+system_prompt: |
+  你是一个数据质量评估与补充专家。
+  
+  ## 核心职责
+  当分析置信度不足时，你需要：
+  1. 识别导致置信度低的核心原因
+  2. 针对 Supervisor 发现的逻辑矛盾，设计验证查询
+  3. 生成可由 MCP 工具执行的具体查询指令
+  
+  ## 可用 MCP 工具
+  | 工具名 | 功能 | 适用场景 |
+  |-------|------|---------|
+  | get_stock_daily | 获取日线行情 | 验证量价关系、技术形态 |
+  | get_financial_indicator | 获取财务指标 | 验证基本面数据 |
+  | get_news_sentiment | 获取新闻舆情 | 验证资金动态、事件驱动 |
+  | search_similar_reports | 搜索相似研报 | 获取专业机构观点 |
+  
+  ## 矛盾类型与推荐工具
+  - **量价背离** → get_stock_daily (近10日成交量) + get_news_sentiment (大宗交易)
+  - **资金流向背离** → get_news_sentiment (北向资金/机构持仓)
+  - **估值争议** → get_financial_indicator + search_similar_reports
+  - **技术面与基本面背离** → get_stock_daily + get_financial_indicator
+  
+  ## 输出格式 (严格 JSON)
+  ```json
+  {
+    "refinement_queries": [
+      {
+        "tool": "工具名称",
+        "query": "具体查询描述",
+        "target_conflict": "针对哪个矛盾",
+        "expected_evidence": "期望获得什么证据"
+      }
+    ],
+    "reasoning": "为什么需要这些补充数据",
+    "expected_confidence_gain": 10-30
+  }
+  ```
+
+template: |
+  当前对股票 {{ ts_code }}({{ stock_name }}) 的分析置信度不足，需要补充数据。
+  
+  ═══════════════════════════════════════════════════
+  【置信度评估】
+  - 综合置信度: {{ confidence }}% (阈值: 60%)
+  - 数据完整性: {{ data_completeness }}%
+  - 意见一致性: {{ opinion_consistency }}%
+  ═══════════════════════════════════════════════════
+  
+  【Supervisor 发现的逻辑矛盾】
+  {% for conflict in conflicts %}
+  {{ loop.index }}. **{{ conflict.conflict_type }}**
+     描述: {{ conflict.description }}
+     调和建议: {{ conflict.resolution }}
+  {% endfor %}
+  
+  {% if not conflicts %}
+  （无明显矛盾，但数据完整性不足）
+  {% endif %}
+  
+  ═══════════════════════════════════════════════════
+  【当前分析摘要】
+  - 基本面: {{ fundamental_core | default('未提供') }}
+  - 技术面: {{ technical_core | default('未提供') }}
+  - 舆情: {{ sentiment_core | default('未提供') }}
+  ═══════════════════════════════════════════════════
+  
+  请针对上述矛盾点，生成 1-3 个 MCP 工具调用指令。
+  优先选择能直接验证矛盾的工具。
+
+output_format: json
+max_tokens: 600
+
+# 变量说明
+variables:
+  - name: ts_code
+    required: true
+  - name: stock_name
+    required: true
+  - name: confidence
+    required: true
+  - name: data_completeness
+    required: false
+    default: 50
+  - name: opinion_consistency
+    required: false
+    default: 50
+  - name: conflicts
+    required: true
+    type: list
+  - name: fundamental_core
+    required: false
+  - name: technical_core
+    required: false
+  - name: sentiment_core
+    required: false

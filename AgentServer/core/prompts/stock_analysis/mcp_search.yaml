@@ -1,0 +1,106 @@
+# MCP 搜索提示词配置
+# 当 Supervisor 发现逻辑矛盾时，生成针对性的 MCP 工具调用查询
+
+name: "mcp_search_dispatcher"
+version: "3.0.0"
+description: "针对 Supervisor 提出的逻辑矛盾点，生成 MCP 工具调用指令"
+
+# 可用的 MCP 工具映射
+available_tools:
+  - name: "get_stock_basic"
+    description: "获取股票基本信息"
+    use_when: "需要确认股票行业、上市日期、公司概况等基础信息"
+  
+  - name: "get_stock_daily"
+    description: "获取股票日线行情"
+    use_when: "需要验证价格走势、成交量、换手率等技术指标"
+  
+  - name: "get_financial_indicator"
+    description: "获取财务指标"
+    use_when: "需要验证 EPS、ROE、毛利率等基本面数据"
+  
+  - name: "get_news_sentiment"
+    description: "获取相关新闻和情绪分析"
+    use_when: "需要补充资讯面信息，如大宗交易、高管减持、机构调研等"
+  
+  - name: "search_similar_reports"
+    description: "搜索相似研报"
+    use_when: "需要参考历史研报或专业分析观点"
+
+# 矛盾类型到工具的映射
+conflict_tool_mapping:
+  "量价背离":
+    - tool: "get_stock_daily"
+      query_hint: "获取近 10 日成交量和换手率变化"
+    - tool: "get_news_sentiment"
+      query_hint: "搜索是否有大宗交易或主力出货新闻"
+  
+  "资金流向背离":
+    - tool: "get_news_sentiment"
+      query_hint: "搜索机构持仓变化、北向资金动态"
+    - tool: "search_similar_reports"
+      query_hint: "搜索该股的机构研报评级变化"
+  
+  "估值争议":
+    - tool: "get_financial_indicator"
+      query_hint: "获取最新财务数据和估值指标"
+    - tool: "search_similar_reports"
+      query_hint: "搜索行业估值对比分析"
+  
+  "舆情异常":
+    - tool: "get_news_sentiment"
+      query_hint: "搜索高管减持、股权质押、诉讼等负面新闻"
+  
+  "技术面与基本面背离":
+    - tool: "get_stock_daily"
+      query_hint: "获取近 20 日详细行情数据"
+    - tool: "get_financial_indicator"
+      query_hint: "获取最新季度财务数据"
+
+system_prompt: |
+  你是一个 MCP 工具调度专家。根据 Supervisor 发现的逻辑矛盾点，选择最合适的工具组合来获取验证数据。
+  
+  ### 决策原则
+  1. 每个矛盾点选择 1-2 个最相关的工具
+  2. 避免重复调用相同工具
+  3. 优先选择能直接验证矛盾的工具
+  4. 如果矛盾涉及资金/舆情，优先 get_news_sentiment
+  5. 如果矛盾涉及技术面，优先 get_stock_daily
+  
+  ### 输出格式
+  严格输出 JSON，格式如下：
+  {
+    "tool_calls": [
+      {
+        "tool": "工具名称",
+        "query": "具体查询指令",
+        "target_conflict": "对应的矛盾类型",
+        "expected_evidence": "期望获取什么证据"
+      }
+    ],
+    "reasoning": "为什么选择这些工具"
+  }
+
+template: |
+  请为股票 {{ ts_code }}({{ stock_name }}) 生成 MCP 工具调用计划。
+  
+  【Supervisor 发现的逻辑矛盾】
+  {% for conflict in conflicts %}
+  - **{{ conflict.conflict_type }}**: {{ conflict.description }}
+    调和建议: {{ conflict.resolution }}
+  {% endfor %}
+  
+  【当前置信度】
+  - 综合置信度: {{ confidence }}%
+  - 数据完整性: {{ data_completeness }}%
+  - 意见一致性: {{ opinion_consistency }}%
+  
+  【已有分析摘要】
+  - 基本面核心结论: {{ fundamental_core }}
+  - 技术面核心结论: {{ technical_core }}
+  - 舆情核心结论: {{ sentiment_core }}
+  
+  请针对上述矛盾点，生成 MCP 工具调用计划（最多 3 个工具调用）。
+
+output_format: json
+max_tokens: 800

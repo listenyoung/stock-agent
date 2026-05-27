@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stock-agent-data-agent
+  labels:
+    app: stock-agent
+    component: data-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: stock-agent
+      component: data-agent
+  template:
+    metadata:
+      labels:
+        app: stock-agent
+        component: data-agent
+    spec:
+      containers:
+      - name: data-agent
+        image: stock-agent/data-agent:latest
+        ports:
+        - containerPort: 8001
+        env:
+        - name: MONGODB_URL
+          valueFrom:
+            secretKeyRef:
+              name: stock-agent-secrets
+              key: mongodb-url
+        - name: TUSHARE_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: stock-agent-secrets
+              key: tushare-token
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "250m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: stock-agent-data-agent
+spec:
+  selector:
+    app: stock-agent
+    component: data-agent
+  ports:
+  - port: 8001
+    targetPort: 8001
+  type: ClusterIP
